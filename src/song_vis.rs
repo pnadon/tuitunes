@@ -42,7 +42,7 @@ impl<'a> App<'a> {
       min: u16::MAX as u64,
       channels: source.channels() as u64,
       sample_rate: source.sample_rate() as u64,
-      buf: vec![0; TICK_RATE as usize * 2 * source.sample_rate() as usize / 1000],
+      buf: vec![0; TICK_RATE as usize * 4 * source.sample_rate() as usize / 1000],
       source: Box::new(source.into_iter()),
       data: vec![("", 0); NUM_BARS],
     }
