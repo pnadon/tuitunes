@@ -10,4 +10,5 @@ anyhow = "1.0.56"
 clap = {version = "3.1.6", features = ["derive"]}
 crossterm = "0.23.1"
 rodio = "0.15"
+spectrum-analyzer = "1.2.4"
 tui = "0.17.0"

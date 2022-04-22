@@ -1,9 +1,16 @@
+use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
+use spectrum_analyzer::windows::hann_window;
+use spectrum_analyzer::scaling::divide_by_N;
 use crossterm::{
   event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
   execute,
   terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use rodio::OutputStream;
+use std::ffi::OsStr;
+use std::fs::{File, DirEntry};
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 use std::{
   error::Error,
   io,
@@ -18,52 +25,68 @@ use tui::{
 };
 use anyhow::anyhow;
 
-const NUM_BARS: usize = 256;
-const TICK_RATE: u64 = 20;
+const NUM_BARS: usize = 64;
+const TICK_RATE: u64 = 50;
 const MIN_CROP: u64 = 22000;
+const HANN_WINDOW_SIZE: usize  = 2048;
 
 struct App<'a> {
   min: u64,
   max: u64,
-  sample_rate: u64,
+  sample_rate: u32,
   channels: u64,
-  buf: Vec<u64>,
-  source: Box<dyn rodio::Source<Item = u16> + Send + 'static>,
-  data: Vec<(&'a str, u64)>,
+  buf: Vec<f32>,
+  source: Box<dyn rodio::Source<Item = f32> + Send + 'static>,
+  data: Vec<(&'a str, f32)>,
 }
 
 impl<'a> App<'a> {
   pub fn new<S>(source: S) -> App<'a>
   where
-    S: rodio::Source<Item = u16> + Send + 'static,
+    S: rodio::Source<Item = f32> + Send + 'static,
   {
     App {
       max: 0,
       min: u16::MAX as u64,
       channels: source.channels() as u64,
-      sample_rate: source.sample_rate() as u64,
-      buf: vec![0; TICK_RATE as usize * 4 * source.sample_rate() as usize / 1000],
+      sample_rate: source.sample_rate() as u32,
+      buf: vec![0.0; TICK_RATE as usize * 4 * source.sample_rate() as usize / 1000],
       source: Box::new(source.into_iter()),
-      data: vec![("", 0); NUM_BARS],
+      data: vec![("", 0.0); NUM_BARS],
     }
   }
 
-  fn on_tick(&mut self, elapsed: u64) {
+  fn on_tick(&mut self, elapsed: u32) {
     let num_samples = (self.sample_rate * elapsed / 1000) as usize;
-    let buf = &mut self.buf[0..num_samples];
+    let buf = &mut self.buf[0..HANN_WINDOW_SIZE];
     for i in 0..num_samples {
-      buf[i] = self.source.next().unwrap_or_default() as u64;
+      let data = self.source.next().unwrap_or_default();
+      if i < HANN_WINDOW_SIZE {
+        buf[i] = data
+      }
       for _ in 0..self.channels - 1 {
         self.source.next();
       }
     }
-    let val = buf.iter().sum::<u64>() / buf.len() as u64;
-    self.data.pop().unwrap();
-    self.min = cmp::min(self.min, val);
-    self.max = cmp::max(self.max, val);
-    self
-      .data
-      .insert(0, ("", val.saturating_sub(self.min)));
+    let hann_window = hann_window(buf);
+    // calc spectrum
+    let spectrum_hann_window = samples_fft_to_spectrum(
+        // (windowed) samples
+        &hann_window,
+        // sampling rate
+        self.sample_rate,
+        // optional frequency limit: e.g. only interested in frequencies 50 <= f <= 150?
+        FrequencyLimit::Range(40.0, 5000.0),
+        // optional scale
+        Some(&divide_by_N),
+    ).unwrap();
+
+    self.data = vec![("", 0.0); NUM_BARS];
+    for (fr, fr_val) in spectrum_hann_window.data().iter() {
+      let bar = (fr.val() - 40.0) * NUM_BARS as f32 / (5000.0 - 40.0);
+      self.data[bar as usize].1 += fr_val.val()
+
+    }
     
     // dbg!(val, val.saturating_sub(self.min));
   }
@@ -77,10 +100,7 @@ pub fn run(song_path: &str, no_brightness: bool) -> Result<(), Box<dyn Error>> {
   let backend = CrosstermBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
 
-  // create app and run it
-  let tick_rate = Duration::from_millis(TICK_RATE);
-  let app = App::new(crate::get_source::<u16>(song_path)?);
-  let res = run_app(&mut terminal, app, song_path, no_brightness, tick_rate);
+  let res = run_app(&mut terminal, song_path, no_brightness);
 
   // restore terminal
   disable_raw_mode()?;
@@ -100,42 +120,80 @@ pub fn run(song_path: &str, no_brightness: bool) -> Result<(), Box<dyn Error>> {
 
 fn run_app<B: Backend>(
   terminal: &mut Terminal<B>,
-  mut app: App,
   song_path: &str,
   no_brightness: bool,
-  tick_rate: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
   // let handler = std::thread::spawn(|| {
   // Get a output stream handle to the default physical sound device
   let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
-  let source = crate::get_source(song_path).unwrap();
-  // Play the sound directly on the device
-  stream_handle.play_raw(source).unwrap();
+  let tick_rate = Duration::from_millis(TICK_RATE);
+  
+  let song_path = Path::new(song_path);
+  let songs = {
+    let mut s = if song_path.is_dir() {
+      song_path.read_dir()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.metadata().unwrap().is_file())
+        .map(|e| e.path())
+        .collect::<Vec<PathBuf>>()
+    } else {
+      vec![song_path.to_owned()]
+    };
+    s.sort();
+    s
+  };
+  for song in songs.iter() {
+    let mut app = App::new(crate::get_source::<f32, _>(song)?);
+    // Play the sound directly on the device
+    let mut sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
 
-  let mut last_tick = Instant::now();
-  loop {
-    terminal.draw(|f| ui(f, &app, no_brightness))?;
+    let mut last_tick = Instant::now();
+    let song_name = song.file_name().unwrap();
+    'song: loop {
+      terminal.draw(|f| ui(f, &app, no_brightness, song_name.to_str().unwrap()))?;
 
-    let timeout = tick_rate
-      .checked_sub(last_tick.elapsed())
-      .unwrap_or_else(|| Duration::from_secs(0));
-    if crossterm::event::poll(timeout)? {
-      if let Event::Key(key) = event::read()? {
-        if let KeyCode::Char('q') = key.code {
-          return Ok(())
+      let timeout = tick_rate
+        .checked_sub(last_tick.elapsed())
+        .unwrap_or_else(|| Duration::from_secs(0));
+      if crossterm::event::poll(timeout)? {
+        if let Event::Key(key) = event::read()? {
+          match key.code {
+            KeyCode::Char('q') => return Ok(()),
+            KeyCode::Char('n') => {
+              break 'song;
+            }
+            KeyCode::Char('p') => {
+              if sink.is_paused() {
+                sink.play();
+                last_tick = Instant::now();
+              } else {
+                sink.pause();
+              }
+            },
+            KeyCode::Char('r') => {
+              sink.stop();
+              app = App::new(crate::get_source::<f32, _>(song)?);
+              sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
+            }
+            _ => (),
+          }
         }
       }
-    }
-    if last_tick.elapsed() >= tick_rate {
-      let elapsed = last_tick.elapsed().as_millis();
-      last_tick = Instant::now();
-      app.on_tick(elapsed as u64);
+      if sink.empty() {
+        break 'song;
+      }
+      if !sink.is_paused() && last_tick.elapsed() >= tick_rate {
+        let elapsed = last_tick.elapsed().as_millis();
+        last_tick = Instant::now();
+        app.on_tick(elapsed as u32);
+      }
     }
   }
+  Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App, no_brightness: bool) {
+fn ui<B: Backend>(f: &mut Frame<B>, app: &App, no_brightness: bool, song_name: &str) {
   let color = if no_brightness {
     Color::Yellow
   } else {
@@ -146,17 +204,17 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, no_brightness: bool) {
     // Color::Rgb(rgb_val, rgb_val, rgb_val)
     Color::Yellow
   };
+  let data = app.data.iter().map(|(_, v)| ("", (v * 1000.0) as u64 + 10)).collect::<Vec<(&str, u64)>>();
   let chunks = Layout::default()
     .direction(Direction::Vertical)
     .margin(2)
-    .constraints([Constraint::Percentage(100)].as_ref())
+    .constraints([Constraint::Length(NUM_BARS as u16 * 2)].as_ref())
     .split(f.size());
   let barchart = BarChart::default()
-    .block(Block::default().title(format!("min:{}-----max:{}", app.min, app.max)).borders(Borders::ALL))
-    .data(&app.data)
-    .bar_width(1)
+    .block(Block::default().title(format!("now-playing:-{}", song_name)).borders(Borders::ALL))
+    .data(&data)
+    .bar_width(2)
     .bar_gap(0)
-    .bar_style(Style::default().fg(color))
-    .value_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+    .bar_style(Style::default().fg(color));
   f.render_widget(barchart, chunks[0]);
 }
