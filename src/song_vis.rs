@@ -27,12 +27,9 @@ use tui::{
 
 const NUM_BARS: usize = 64;
 const TICK_RATE: u64 = 50;
-const MIN_CROP: u64 = 22000;
 const HANN_WINDOW_SIZE: usize = 2048;
 
 struct App<'a> {
-  min: u64,
-  max: u64,
   sample_rate: u32,
   channels: u64,
   buf: Vec<f32>,
@@ -46,8 +43,6 @@ impl<'a> App<'a> {
     S: rodio::Source<Item = f32> + Send + 'static,
   {
     App {
-      max: 0,
-      min: u16::MAX as u64,
       channels: source.channels() as u64,
       sample_rate: source.sample_rate() as u32,
       buf: vec![0.0; TICK_RATE as usize * 4 * source.sample_rate() as usize / 1000],
@@ -92,7 +87,7 @@ impl<'a> App<'a> {
   }
 }
 
-pub fn run(song_path: &str, no_brightness: bool) -> Result<(), Box<dyn Error>> {
+pub fn run(song_path: &str) -> Result<(), Box<dyn Error>> {
   // setup terminal
   enable_raw_mode()?;
   let mut stdout = io::stdout();
@@ -100,7 +95,7 @@ pub fn run(song_path: &str, no_brightness: bool) -> Result<(), Box<dyn Error>> {
   let backend = CrosstermBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
 
-  let res = run_app(&mut terminal, song_path, no_brightness);
+  let res = run_app(&mut terminal, song_path);
 
   // restore terminal
   disable_raw_mode()?;
@@ -121,10 +116,7 @@ pub fn run(song_path: &str, no_brightness: bool) -> Result<(), Box<dyn Error>> {
 fn run_app<B: Backend>(
   terminal: &mut Terminal<B>,
   song_path: &str,
-  no_brightness: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-  // let handler = std::thread::spawn(|| {
-  // Get a output stream handle to the default physical sound device
   let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
   let tick_rate = Duration::from_millis(TICK_RATE);
@@ -152,7 +144,7 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
     let song_name = song.file_name().unwrap();
     'song: loop {
-      terminal.draw(|f| ui(f, &app, no_brightness, song_name.to_str().unwrap()))?;
+      terminal.draw(|f| ui(f, &app, song_name.to_str().unwrap()))?;
 
       let timeout = tick_rate
         .checked_sub(last_tick.elapsed())
@@ -194,17 +186,7 @@ fn run_app<B: Backend>(
   Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App, no_brightness: bool, song_name: &str) {
-  let color = if no_brightness {
-    Color::Yellow
-  } else {
-    // // need to think about this one...
-    // let last_val = app.data.last().map(|v| v.1).unwrap_or(app.min);
-    // let rgb_val = cmp::min(u8::MAX as u64 * last_val / (app.max.saturating_sub(app.min) + 1), u8::MAX as u64) as u8;
-    // dbg!(rgb_val, last_val, (app.max.saturating_sub(app.min) + 1));
-    // Color::Rgb(rgb_val, rgb_val, rgb_val)
-    Color::Yellow
-  };
+fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str) {
   let data = app
     .data
     .iter()
@@ -224,6 +206,6 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, no_brightness: bool, song_name: &
     .data(&data)
     .bar_width(2)
     .bar_gap(0)
-    .bar_style(Style::default().fg(color));
+    .bar_style(Style::default().fg(Color::Yellow));
   f.render_widget(barchart, chunks[0]);
 }

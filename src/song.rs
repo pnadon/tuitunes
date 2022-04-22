@@ -3,7 +3,6 @@ use std::error::Error;
 
 use std::io;
 
-
 use crate::{get_source, TEST_SONG_PATH};
 
 pub fn run() -> Result<(), Box<dyn Error>> {
