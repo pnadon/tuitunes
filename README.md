@@ -2,7 +2,7 @@
 
 Experimental cli-based music player, with a waveform visualizer.
 
-This is ready by any means, use at your own risk.
+This isn't ready by any means, use at your own risk. This is just a result of me playing around with a fun project.
 
 Usage (need Rust installed):
 
