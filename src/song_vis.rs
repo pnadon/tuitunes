@@ -1,34 +1,34 @@
-use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
-use spectrum_analyzer::windows::hann_window;
-use spectrum_analyzer::scaling::divide_by_N;
+
 use crossterm::{
   event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
   execute,
   terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use rodio::OutputStream;
-use std::ffi::OsStr;
-use std::fs::{File, DirEntry};
+use spectrum_analyzer::scaling::divide_by_N;
+use spectrum_analyzer::windows::hann_window;
+use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
+
+use std::fs::{File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::{
   error::Error,
   io,
-  time::{Duration, Instant}, thread::sleep, cmp,
+  time::{Duration, Instant},
 };
 use tui::{
   backend::{Backend, CrosstermBackend},
   layout::{Constraint, Direction, Layout},
-  style::{Color, Modifier, Style},
+  style::{Color, Style},
   widgets::{BarChart, Block, Borders},
   Frame, Terminal,
 };
-use anyhow::anyhow;
 
 const NUM_BARS: usize = 64;
 const TICK_RATE: u64 = 50;
 const MIN_CROP: u64 = 22000;
-const HANN_WINDOW_SIZE: usize  = 2048;
+const HANN_WINDOW_SIZE: usize = 2048;
 
 struct App<'a> {
   min: u64,
@@ -51,7 +51,7 @@ impl<'a> App<'a> {
       channels: source.channels() as u64,
       sample_rate: source.sample_rate() as u32,
       buf: vec![0.0; TICK_RATE as usize * 4 * source.sample_rate() as usize / 1000],
-      source: Box::new(source.into_iter()),
+      source: Box::new(source),
       data: vec![("", 0.0); NUM_BARS],
     }
   }
@@ -71,23 +71,23 @@ impl<'a> App<'a> {
     let hann_window = hann_window(buf);
     // calc spectrum
     let spectrum_hann_window = samples_fft_to_spectrum(
-        // (windowed) samples
-        &hann_window,
-        // sampling rate
-        self.sample_rate,
-        // optional frequency limit: e.g. only interested in frequencies 50 <= f <= 150?
-        FrequencyLimit::Range(40.0, 5000.0),
-        // optional scale
-        Some(&divide_by_N),
-    ).unwrap();
+      // (windowed) samples
+      &hann_window,
+      // sampling rate
+      self.sample_rate,
+      // optional frequency limit: e.g. only interested in frequencies 50 <= f <= 150?
+      FrequencyLimit::Range(40.0, 5000.0),
+      // optional scale
+      Some(&divide_by_N),
+    )
+    .unwrap();
 
     self.data = vec![("", 0.0); NUM_BARS];
     for (fr, fr_val) in spectrum_hann_window.data().iter() {
       let bar = (fr.val() - 40.0) * NUM_BARS as f32 / (5000.0 - 40.0);
       self.data[bar as usize].1 += fr_val.val()
-
     }
-    
+
     // dbg!(val, val.saturating_sub(self.min));
   }
 }
@@ -128,11 +128,12 @@ fn run_app<B: Backend>(
   let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
   let tick_rate = Duration::from_millis(TICK_RATE);
-  
+
   let song_path = Path::new(song_path);
   let songs = {
     let mut s = if song_path.is_dir() {
-      song_path.read_dir()?
+      song_path
+        .read_dir()?
         .filter_map(|e| e.ok())
         .filter(|e| e.metadata().unwrap().is_file())
         .map(|e| e.path())
@@ -170,7 +171,7 @@ fn run_app<B: Backend>(
               } else {
                 sink.pause();
               }
-            },
+            }
             KeyCode::Char('r') => {
               sink.stop();
               app = App::new(crate::get_source::<f32, _>(song)?);
@@ -204,14 +205,22 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, no_brightness: bool, song_name: &
     // Color::Rgb(rgb_val, rgb_val, rgb_val)
     Color::Yellow
   };
-  let data = app.data.iter().map(|(_, v)| ("", (v * 1000.0) as u64 + 10)).collect::<Vec<(&str, u64)>>();
+  let data = app
+    .data
+    .iter()
+    .map(|(_, v)| ("", (v * 1000.0) as u64 + 10))
+    .collect::<Vec<(&str, u64)>>();
   let chunks = Layout::default()
     .direction(Direction::Vertical)
     .margin(2)
     .constraints([Constraint::Length(NUM_BARS as u16 * 2)].as_ref())
     .split(f.size());
   let barchart = BarChart::default()
-    .block(Block::default().title(format!("now-playing:-{}", song_name)).borders(Borders::ALL))
+    .block(
+      Block::default()
+        .title(format!("now-playing:-{}", song_name))
+        .borders(Borders::ALL),
+    )
     .data(&data)
     .bar_width(2)
     .bar_gap(0)

@@ -1,8 +1,8 @@
-use rodio::{source::Source, Decoder, OutputStream};
+use rodio::{source::Source, OutputStream};
 use std::error::Error;
-use std::fs::File;
+
 use std::io;
-use std::io::BufReader;
+
 
 use crate::{get_source, TEST_SONG_PATH};
 
