@@ -7,5 +7,5 @@ This is ready by any means, use at your own risk.
 Usage (need Rust installed):
 
 ```
-cargo run -- --path='path-to-an-mp3-file.mp3'
+cargo run -- --path='path-to-an-mp3-file-or-directory'
 ```

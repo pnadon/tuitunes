@@ -2,10 +2,7 @@ use std::{fs::File, io::BufReader, path::Path};
 
 use rodio::{source::SamplesConverter, Decoder, Source};
 
-pub mod song;
 pub mod song_vis;
-
-const TEST_SONG_PATH: &str = "/Users/pnadon/Downloads/King Gizzard & The Lizard Wizard - Omnium Gatherum (pre-order)/King Gizzard & The Lizard Wizard - Omnium Gatherum - 02 Magenta Mountain.mp3";
 
 pub fn get_source<D: rodio::Sample, P: AsRef<Path>>(
   song_path: P,

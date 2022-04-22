@@ -1,15 +1,15 @@
-
 use crossterm::{
   event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
   execute,
   terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use rodio::OutputStream;
+use rodio::{OutputStream, OutputStreamHandle, Sink};
 use spectrum_analyzer::scaling::divide_by_N;
 use spectrum_analyzer::windows::hann_window;
 use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
 
-use std::fs::{File};
+use anyhow::anyhow;
+use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::{
@@ -28,6 +28,8 @@ use tui::{
 const NUM_BARS: usize = 64;
 const TICK_RATE: u64 = 50;
 const HANN_WINDOW_SIZE: usize = 2048;
+
+const SUPPORTED_FORMATS: [&str; 4] = ["mp3", "flac", "ogg", "wav"];
 
 struct App<'a> {
   sample_rate: u32,
@@ -137,9 +139,12 @@ fn run_app<B: Backend>(
     s
   };
   for song in songs.iter() {
-    let mut app = App::new(crate::get_source::<f32, _>(song)?);
-    // Play the sound directly on the device
-    let mut sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
+    let maybe_song_data = load_app_and_sink(song, &stream_handle);
+    if let Err(e) = &maybe_song_data {
+      eprintln!("could not load song, skipping...: {}", e);
+      continue;
+    }
+    let (mut app, mut sink) = maybe_song_data.unwrap();
 
     let mut last_tick = Instant::now();
     let song_name = song.file_name().unwrap();
@@ -208,4 +213,21 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str) {
     .bar_gap(0)
     .bar_style(Style::default().fg(Color::Yellow));
   f.render_widget(barchart, chunks[0]);
+}
+
+fn load_app_and_sink<'a>(
+  song: &'a PathBuf,
+  stream_handle: &OutputStreamHandle,
+) -> Result<(App<'a>, Sink), Box<dyn Error>> {
+  let is_supported_format = SUPPORTED_FORMATS
+    .iter()
+    .any(|ext| song.extension().and_then(|e| e.to_str()) == Some(*ext));
+  if !is_supported_format {
+    return Err(anyhow!("file {} is not a supported format", song.to_str().unwrap()).into());
+  }
+  let app = App::new(crate::get_source::<f32, _>(song)?);
+  // Play the sound directly on the device
+  let sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
+
+  Ok((app, sink))
 }
