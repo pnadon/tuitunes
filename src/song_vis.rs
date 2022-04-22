@@ -20,12 +20,12 @@ use std::{
 use tui::{
   backend::{Backend, CrosstermBackend},
   layout::{Constraint, Direction, Layout},
-  style::{Color, Style},
-  widgets::{BarChart, Block, Borders},
+  style::{Color, Style, Modifier},
+  widgets::{BarChart, Block, Borders, List, ListItem},
   Frame, Terminal,
 };
 
-const NUM_BARS: usize = 64;
+const NUM_BARS: usize = 48;
 const TICK_RATE: u64 = 50;
 const HANN_WINDOW_SIZE: usize = 2048;
 
@@ -124,22 +124,24 @@ fn run_app<B: Backend>(
   let tick_rate = Duration::from_millis(TICK_RATE);
 
   let song_path = Path::new(song_path);
-  let songs = {
+  let mut songs = {
     let mut s = if song_path.is_dir() {
       song_path
         .read_dir()?
         .filter_map(|e| e.ok())
-        .filter(|e| e.metadata().unwrap().is_file())
+        .filter(|e| e.metadata().unwrap().is_file() && has_supported_extension(&e.path()) )
         .map(|e| e.path())
         .collect::<Vec<PathBuf>>()
     } else {
       vec![song_path.to_owned()]
     };
     s.sort();
+    s.reverse();
     s
   };
-  for song in songs.iter() {
-    let maybe_song_data = load_app_and_sink(song, &stream_handle);
+  while !songs.is_empty() {
+    let song = songs.pop().unwrap();
+    let maybe_song_data = load_app_and_sink(&song, &stream_handle);
     if let Err(e) = &maybe_song_data {
       eprintln!("could not load song, skipping...: {}", e);
       continue;
@@ -149,7 +151,8 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
     let song_name = song.file_name().unwrap();
     'song: loop {
-      terminal.draw(|f| ui(f, &app, song_name.to_str().unwrap()))?;
+      let up_next = &songs.iter().rev().map(|b| b.file_name().unwrap().to_str().unwrap()).collect::<Vec<&str>>();
+      terminal.draw(|f| ui(f, &app, song_name.to_str().unwrap(), &up_next))?;
 
       let timeout = tick_rate
         .checked_sub(last_tick.elapsed())
@@ -171,8 +174,8 @@ fn run_app<B: Backend>(
             }
             KeyCode::Char('r') => {
               sink.stop();
-              app = App::new(crate::get_source::<f32, _>(song)?);
-              sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
+              app = App::new(crate::get_source::<f32, _>(&song)?);
+              sink = stream_handle.play_once(BufReader::new(File::open(&song)?))?;
             }
             _ => (),
           }
@@ -191,16 +194,16 @@ fn run_app<B: Backend>(
   Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str) {
+fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]) {
   let data = app
     .data
     .iter()
     .map(|(_, v)| ("", (v * 1000.0) as u64 + 10))
     .collect::<Vec<(&str, u64)>>();
   let chunks = Layout::default()
-    .direction(Direction::Vertical)
+    .direction(Direction::Horizontal)
     .margin(2)
-    .constraints([Constraint::Length(NUM_BARS as u16 * 2)].as_ref())
+    .constraints([Constraint::Length(NUM_BARS as u16 * 2), Constraint::Percentage(40)].as_ref())
     .split(f.size());
   let barchart = BarChart::default()
     .block(
@@ -212,17 +215,19 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str) {
     .bar_width(2)
     .bar_gap(0)
     .bar_style(Style::default().fg(Color::Yellow));
+  let up_next_list = List::new(up_next.iter().map(|s| ListItem::new(*s)).collect::<Vec<ListItem>>())
+    .block(Block::default().title("up-next").borders(Borders::ALL))
+    .style(Style::default().fg(Color::White))
+    .highlight_style(Style::default().add_modifier(Modifier::ITALIC));
   f.render_widget(barchart, chunks[0]);
+  f.render_widget(up_next_list, chunks[1]);
 }
 
 fn load_app_and_sink<'a>(
   song: &'a PathBuf,
   stream_handle: &OutputStreamHandle,
 ) -> Result<(App<'a>, Sink), Box<dyn Error>> {
-  let is_supported_format = SUPPORTED_FORMATS
-    .iter()
-    .any(|ext| song.extension().and_then(|e| e.to_str()) == Some(*ext));
-  if !is_supported_format {
+  if !has_supported_extension(song) {
     return Err(anyhow!("file {} is not a supported format", song.to_str().unwrap()).into());
   }
   let app = App::new(crate::get_source::<f32, _>(song)?);
@@ -230,4 +235,10 @@ fn load_app_and_sink<'a>(
   let sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
 
   Ok((app, sink))
+}
+
+fn has_supported_extension(path: &PathBuf) -> bool {
+  SUPPORTED_FORMATS
+    .iter()
+    .any(|ext| path.extension().and_then(|e| e.to_str()) == Some(*ext))
 }
