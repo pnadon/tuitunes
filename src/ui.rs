@@ -126,9 +126,13 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
-pub fn popup<B: Backend>(f: &mut Frame<B>, text: &str, ui_color: Color) {
+pub fn add_songs_popup<B: Backend>(f: &mut Frame<B>, text: &str, ui_color: Color) {
   let block = widgets::Paragraph::new(text)
-    .block(Block::default().title("enter-path").borders(Borders::ALL))
+    .block(
+      Block::default()
+        .title("enter-path-to-songs")
+        .borders(Borders::ALL),
+    )
     .style(Style::default().fg(ui_color));
   let area = centered_rect(60, 20, f.size());
   f.render_widget(Clear, area);

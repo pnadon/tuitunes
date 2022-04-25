@@ -5,8 +5,8 @@ use crossterm::{
 };
 use rodio::{OutputStream, OutputStreamHandle};
 
-use crate::songs::{load_app_and_sink, load_song_list, to_song_names};
-use crate::ui::{get_ui_color, main_ui, popup};
+use crate::songs::{get_search_dir, load_app_and_sink, load_song_list, to_song_names};
+use crate::ui::{add_songs_popup, get_ui_color, main_ui};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{
@@ -112,9 +112,9 @@ fn run_app<B: Backend>(
             }
             KeyCode::Char('a') => {
               sink.pause();
-              let mut buf = String::new();
+              let mut buf = get_search_dir();
               'add_songs: loop {
-                terminal.draw(|f| popup(f, &buf, ui_color))?;
+                terminal.draw(|f| add_songs_popup(f, &buf, ui_color))?;
                 if let Event::Key(k) = event::read()? {
                   match k.code {
                     KeyCode::Esc => {

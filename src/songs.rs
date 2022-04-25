@@ -1,12 +1,12 @@
 use std::{
-  env::temp_dir,
+  env::{self, temp_dir},
   error::Error,
   fs::File,
   io::{BufReader, Cursor},
   path::{Path, PathBuf},
 };
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{Decoder, OutputStreamHandle, Sink, Source};
 
 use anyhow::anyhow;
 
@@ -82,8 +82,12 @@ pub fn save_song_locally(path: &str) -> Result<PathBuf, Box<dyn Error>> {
   Ok(path)
 }
 
-/// Unused, errors out with "NoDevice"
-pub fn get_default_output_handle() -> OutputStreamHandle {
-  let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-  stream_handle
+pub fn get_search_dir() -> String {
+  if let Ok(s) = env::var("MUSIC_HOME") {
+    return s;
+  }
+  if let Ok(s) = env::var("HOME") {
+    return s;
+  }
+  "".to_owned()
 }
