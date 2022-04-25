@@ -9,9 +9,9 @@ use spectrum_analyzer::windows::hann_window;
 use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
 
 use anyhow::anyhow;
-use std::{fs::File, collections::hash_map::DefaultHasher, hash::Hasher};
 use std::io::BufReader;
 use std::path::PathBuf;
+use std::{collections::hash_map::DefaultHasher, fs::File, hash::Hasher};
 use std::{
   error::Error,
   io,
@@ -20,7 +20,7 @@ use std::{
 use tui::{
   backend::{Backend, CrosstermBackend},
   layout::{Constraint, Direction, Layout},
-  style::{Color, Style, Modifier},
+  style::{Color, Modifier, Style},
   widgets::{BarChart, Block, Borders, List, ListItem},
   Frame, Terminal,
 };
@@ -29,7 +29,7 @@ const NUM_BARS: usize = 48;
 const TICK_RATE: u64 = 50;
 const HANN_WINDOW_SIZE: usize = 2048;
 
-const SUPPORTED_FORMATS: [&str; 4] = ["mp3", "flac", "ogg", "wav"];
+const SUPPORTED_FORMATS: [&str; 5] = ["mp3", "flac", "ogg", "wav", "aac"];
 
 struct App<'a> {
   sample_rate: u32,
@@ -108,11 +108,7 @@ pub fn run(song_path: PathBuf, color: bool) -> Result<(), Box<dyn Error>> {
   )?;
   terminal.show_cursor()?;
 
-  if let Err(err) = res {
-    println!("{:?}", err)
-  }
-
-  Ok(())
+  res
 }
 
 fn run_app<B: Backend>(
@@ -129,11 +125,11 @@ fn run_app<B: Backend>(
       song_path
         .read_dir()?
         .filter_map(|e| e.ok())
-        .filter(|e| e.metadata().unwrap().is_file() && has_supported_extension(&e.path()) )
+        .filter(|e| e.metadata().unwrap().is_file() && has_supported_extension(&e.path()))
         .map(|e| e.path())
         .collect::<Vec<PathBuf>>()
     } else {
-      vec![song_path.to_owned()]
+      vec![song_path]
     };
     s.sort();
     s.reverse();
@@ -151,7 +147,11 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
     let song_name = song.file_name().unwrap().to_str().unwrap();
 
-    let up_next = &songs.iter().rev().map(|b| b.file_name().unwrap().to_str().unwrap()).collect::<Vec<&str>>();
+    let up_next = &songs
+      .iter()
+      .rev()
+      .map(|b| b.file_name().unwrap().to_str().unwrap())
+      .collect::<Vec<&str>>();
     let ui_color = if color {
       let mut s = DefaultHasher::new();
       s.write(song_name.as_bytes());
@@ -160,7 +160,7 @@ fn run_app<B: Backend>(
       Color::Yellow
     };
     'song: loop {
-      terminal.draw(|f| ui(f, &app, song_name, &up_next, ui_color))?;
+      terminal.draw(|f| ui(f, &app, song_name, up_next, ui_color))?;
 
       let timeout = tick_rate
         .checked_sub(last_tick.elapsed())
@@ -211,7 +211,13 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]
   let chunks = Layout::default()
     .direction(Direction::Horizontal)
     .margin(2)
-    .constraints([Constraint::Length(NUM_BARS as u16 * 2), Constraint::Percentage(40)].as_ref())
+    .constraints(
+      [
+        Constraint::Length(NUM_BARS as u16 * 2),
+        Constraint::Percentage(40),
+      ]
+      .as_ref(),
+    )
     .split(f.size());
   let barchart = BarChart::default()
     .block(
@@ -224,10 +230,15 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]
     .bar_width(2)
     .bar_gap(0)
     .bar_style(Style::default().fg(ui_color));
-  let up_next_list = List::new(up_next.iter().map(|s| ListItem::new(*s)).collect::<Vec<ListItem>>())
-    .block(Block::default().title("up-next").borders(Borders::ALL))
-    .style(Style::default().fg(ui_color))
-    .highlight_style(Style::default().add_modifier(Modifier::ITALIC));
+  let up_next_list = List::new(
+    up_next
+      .iter()
+      .map(|s| ListItem::new(*s))
+      .collect::<Vec<ListItem>>(),
+  )
+  .block(Block::default().title("up-next").borders(Borders::ALL))
+  .style(Style::default().fg(ui_color))
+  .highlight_style(Style::default().add_modifier(Modifier::ITALIC));
   f.render_widget(barchart, chunks[0]);
   f.render_widget(up_next_list, chunks[1]);
 }
@@ -239,9 +250,8 @@ fn load_app_and_sink<'a>(
   if !has_supported_extension(song) {
     return Err(anyhow!("file {} is not a supported format", song.to_str().unwrap()).into());
   }
-  let app = App::new(crate::get_source::<f32, _>(song)?);
-  // Play the sound directly on the device
   let sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
+  let app = App::new(crate::get_source::<f32, _>(song)?);
 
   Ok((app, sink))
 }

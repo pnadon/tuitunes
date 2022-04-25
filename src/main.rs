@@ -1,5 +1,12 @@
 use clap::Parser;
-use std::{error::Error, path::PathBuf, str::FromStr, env::temp_dir, fs::File, io::{Write, Cursor}};
+use std::{
+  env::temp_dir,
+  error::Error,
+  fs::File,
+  io::{Cursor},
+  path::PathBuf,
+  str::FromStr,
+};
 use tuitunes::song_vis::run;
 
 #[derive(Debug, Parser)]
@@ -16,14 +23,15 @@ fn main() -> Result<(), Box<dyn Error>> {
   let path = if args.path.starts_with("https://") || args.path.starts_with("http://") {
     println!("Looks like you passed in a HTTP URL, downloading...");
     let resp = reqwest::blocking::get(args.path)?;
-    let ext = resp.headers()
+    let ext = resp
+      .headers()
       .get("Content-Type")
       .map(|c| c.to_str())
       .unwrap_or(Ok("audio/mp3"))?
       .trim_start_matches("audio/");
-    
+
     println!("Downloaded, looks like a {} file", ext);
-    let path = { 
+    let path = {
       let mut d = temp_dir();
       d.push(format!("downloaded_song.{}", ext));
       d
@@ -38,5 +46,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Looks like you passed in a local path, playing...");
     PathBuf::from_str(&args.path)?
   };
-  run(path, args.color)
+  let res = run(path, args.color);
+  if let Err(e) = res {
+    println!("{:?}", e);
+  }
+
+  Ok(())
 }
