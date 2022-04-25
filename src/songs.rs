@@ -3,10 +3,10 @@ use std::{
   error::Error,
   fs::File,
   io::{BufReader, Cursor},
-  path::PathBuf,
+  path::{Path, PathBuf},
 };
 
-use rodio::{OutputStream, OutputStreamHandle, Sink};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 
 use anyhow::anyhow;
 
@@ -20,18 +20,21 @@ pub fn load_app_and_sink<'a>(
     return Err(anyhow!("file {} is not a supported format", song.to_str().unwrap()).into());
   }
   let sink = stream_handle.play_once(BufReader::new(File::open(song)?))?;
-  let app = crate::spectrum::Analyzer::new(crate::get_source::<f32, _>(song)?);
+
+  let file = BufReader::new(File::open(song)?);
+
+  let app = crate::spectrum::Analyzer::new(Decoder::new(file)?.convert_samples::<f32>());
 
   Ok((app, sink))
 }
 
-fn has_supported_extension(path: &PathBuf) -> bool {
+fn has_supported_extension(path: &Path) -> bool {
   crate::SUPPORTED_FORMATS
     .iter()
     .any(|ext| path.extension().and_then(|e| e.to_str()) == Some(*ext))
 }
 
-pub fn to_song_names<'a>(paths: &[PathBuf], rev: bool) -> Vec<&str> {
+pub fn to_song_names(paths: &[PathBuf], rev: bool) -> Vec<&str> {
   let p = paths
     .iter()
     .map(|b| b.file_name().unwrap().to_str().unwrap());

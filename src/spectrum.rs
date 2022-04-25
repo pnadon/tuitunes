@@ -27,15 +27,17 @@ impl<'a> Analyzer<'a> {
   pub fn on_tick(&mut self, elapsed: u32) {
     let num_samples = (self.sample_rate * elapsed / 1000) as usize;
     let buf = &mut self.buf[0..crate::HANN_WINDOW_SIZE];
-    for i in 0..num_samples {
+
+    for (i, d) in buf.iter_mut().enumerate().take(num_samples) {
       let data = self.source.next().unwrap_or_default();
       if i < crate::HANN_WINDOW_SIZE {
-        buf[i] = data
+        *d = data
       }
       for _ in 0..self.channels - 1 {
         self.source.next();
       }
     }
+
     let hann_window = hann_window(buf);
     // calc spectrum
     let spectrum_hann_window = samples_fft_to_spectrum(

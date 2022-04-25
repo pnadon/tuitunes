@@ -58,7 +58,7 @@ fn spectrum_visualizer<'a>(data: &'a [(&str, u64)], ui_color: Color) -> BarChart
   BarChart::default()
     .block(Block::default().title("tuitunes").borders(Borders::ALL))
     .style(Style::default().fg(ui_color))
-    .data(&data)
+    .data(data)
     .bar_width(2)
     .bar_gap(0)
     .bar_style(Style::default().fg(ui_color))
