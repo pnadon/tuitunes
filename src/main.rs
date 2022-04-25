@@ -1,9 +1,5 @@
 use clap::Parser;
-use std::{
-  error::Error,
-  path::PathBuf,
-  str::FromStr,
-};
+use std::{error::Error, path::PathBuf, str::FromStr};
 
 #[derive(Debug, Parser)]
 struct Args {

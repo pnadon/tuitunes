@@ -5,8 +5,10 @@ use crossterm::{
 };
 use rodio::{OutputStream, OutputStreamHandle};
 
-use std::str::FromStr;
+use crate::songs::{load_app_and_sink, load_song_list, to_song_names};
+use crate::ui::{get_ui_color, main_ui, popup};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::{
   error::Error,
   io,
@@ -16,8 +18,6 @@ use tui::{
   backend::{Backend, CrosstermBackend},
   Terminal,
 };
-use crate::ui::{main_ui, popup, get_ui_color};
-use crate::songs::{load_song_list, to_song_names, load_app_and_sink};
 
 pub fn run(song_path: PathBuf, enable_color: bool) -> Result<(), Box<dyn Error>> {
   // setup terminal
@@ -64,19 +64,20 @@ fn run_app<B: Backend>(
     }
     let (mut analyzer, mut sink) = maybe_song_data.unwrap();
 
-    
     let song_name = song.file_name().unwrap().to_str().unwrap();
     let ui_color = get_ui_color(song_name, enable_color);
     let mut last_tick = Instant::now();
     'song: loop {
-      terminal.draw(|f| main_ui(
-        f, 
-        &analyzer, 
-        song_name, 
-        &to_song_names(&songs, true), 
-        &to_song_names(&history, false), 
-        ui_color
-      ))?;
+      terminal.draw(|f| {
+        main_ui(
+          f,
+          &analyzer,
+          song_name,
+          &to_song_names(&songs, true),
+          &to_song_names(&history, false),
+          ui_color,
+        )
+      })?;
 
       let timeout = tick_rate
         .checked_sub(last_tick.elapsed())
@@ -127,14 +128,18 @@ fn run_app<B: Backend>(
                       songs = new_song_list;
                       songs.push(song);
                       break 'song;
-                    },
-                    KeyCode::Backspace => {buf.pop();}
-                    KeyCode::Char(c) => {buf.push(c);}
+                    }
+                    KeyCode::Backspace => {
+                      buf.pop();
+                    }
+                    KeyCode::Char(c) => {
+                      buf.push(c);
+                    }
                     _ => (),
                   }
                 }
               }
-            },
+            }
             KeyCode::Char('s') => {
               songs.push(song);
               fastrand::shuffle(&mut songs);

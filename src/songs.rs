@@ -1,6 +1,12 @@
-use std::{path::PathBuf, error::Error, io::{BufReader, Cursor}, fs::File, env::temp_dir};
+use std::{
+  env::temp_dir,
+  error::Error,
+  fs::File,
+  io::{BufReader, Cursor},
+  path::PathBuf,
+};
 
-use rodio::{OutputStreamHandle, Sink, OutputStream};
+use rodio::{OutputStream, OutputStreamHandle, Sink};
 
 use anyhow::anyhow;
 
@@ -26,14 +32,14 @@ fn has_supported_extension(path: &PathBuf) -> bool {
 }
 
 pub fn to_song_names<'a>(paths: &[PathBuf], rev: bool) -> Vec<&str> {
-    let p = paths
-      .iter()
-      .map(|b| b.file_name().unwrap().to_str().unwrap());
-    if rev {
-      p.rev().collect::<Vec<&str>>()
-    } else {
-      p.collect::<Vec<&str>>()
-    }
+  let p = paths
+    .iter()
+    .map(|b| b.file_name().unwrap().to_str().unwrap());
+  if rev {
+    p.rev().collect::<Vec<&str>>()
+  } else {
+    p.collect::<Vec<&str>>()
+  }
 }
 
 pub fn load_song_list(song_path: PathBuf) -> std::io::Result<Vec<PathBuf>> {
@@ -54,23 +60,23 @@ pub fn load_song_list(song_path: PathBuf) -> std::io::Result<Vec<PathBuf>> {
 
 pub fn save_song_locally(path: &str) -> Result<PathBuf, Box<dyn Error>> {
   let resp = reqwest::blocking::get(path)?;
-    let ext = resp
-      .headers()
-      .get("Content-Type")
-      .map(|c| c.to_str())
-      .unwrap_or(Ok("audio/mp3"))?
-      .trim_start_matches("audio/");
+  let ext = resp
+    .headers()
+    .get("Content-Type")
+    .map(|c| c.to_str())
+    .unwrap_or(Ok("audio/mp3"))?
+    .trim_start_matches("audio/");
 
-    let path = {
-      let mut d = temp_dir();
-      d.push(format!("downloaded_song.{}", ext));
-      d
-    };
+  let path = {
+    let mut d = temp_dir();
+    d.push(format!("downloaded_song.{}", ext));
+    d
+  };
 
-    let mut f = File::create(&path)?;
-    let content = resp.bytes()?;
-    std::io::copy(&mut Cursor::new(content), &mut f)?;
-    Ok(path)
+  let mut f = File::create(&path)?;
+  let content = resp.bytes()?;
+  std::io::copy(&mut Cursor::new(content), &mut f)?;
+  Ok(path)
 }
 
 /// Unused, errors out with "NoDevice"
