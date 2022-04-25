@@ -1,17 +1,17 @@
 use clap::Parser;
-use std::error::Error;
+use std::{error::Error, path::PathBuf};
 use tuitunes::song_vis::run;
 
 #[derive(Debug, Parser)]
 struct Args {
   /// Path of the song
   #[clap(short, long)]
-  path: String,
-  /// Disable brightness adjustment based on value, currently unused
+  path: PathBuf,
+  /// Change color based on the song
   #[clap(short, long)]
-  no_brightness: bool,
+  color: bool,
 }
 fn main() -> Result<(), Box<dyn Error>> {
   let args = Args::parse();
-  run(&args.path)
+  run(args.path, args.color)
 }

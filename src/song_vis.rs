@@ -9,9 +9,9 @@ use spectrum_analyzer::windows::hann_window;
 use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
 
 use anyhow::anyhow;
-use std::fs::File;
+use std::{fs::File, collections::hash_map::DefaultHasher, hash::Hasher};
 use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{
   error::Error,
   io,
@@ -89,7 +89,7 @@ impl<'a> App<'a> {
   }
 }
 
-pub fn run(song_path: &str) -> Result<(), Box<dyn Error>> {
+pub fn run(song_path: PathBuf, color: bool) -> Result<(), Box<dyn Error>> {
   // setup terminal
   enable_raw_mode()?;
   let mut stdout = io::stdout();
@@ -97,7 +97,7 @@ pub fn run(song_path: &str) -> Result<(), Box<dyn Error>> {
   let backend = CrosstermBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
 
-  let res = run_app(&mut terminal, song_path);
+  let res = run_app(&mut terminal, song_path, color);
 
   // restore terminal
   disable_raw_mode()?;
@@ -117,13 +117,13 @@ pub fn run(song_path: &str) -> Result<(), Box<dyn Error>> {
 
 fn run_app<B: Backend>(
   terminal: &mut Terminal<B>,
-  song_path: &str,
+  song_path: PathBuf,
+  color: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
   let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
   let tick_rate = Duration::from_millis(TICK_RATE);
 
-  let song_path = Path::new(song_path);
   let mut songs = {
     let mut s = if song_path.is_dir() {
       song_path
@@ -149,10 +149,18 @@ fn run_app<B: Backend>(
     let (mut app, mut sink) = maybe_song_data.unwrap();
 
     let mut last_tick = Instant::now();
-    let song_name = song.file_name().unwrap();
+    let song_name = song.file_name().unwrap().to_str().unwrap();
+
+    let up_next = &songs.iter().rev().map(|b| b.file_name().unwrap().to_str().unwrap()).collect::<Vec<&str>>();
+    let ui_color = if color {
+      let mut s = DefaultHasher::new();
+      s.write(song_name.as_bytes());
+      Color::Indexed((s.finish() % 16) as u8)
+    } else {
+      Color::Yellow
+    };
     'song: loop {
-      let up_next = &songs.iter().rev().map(|b| b.file_name().unwrap().to_str().unwrap()).collect::<Vec<&str>>();
-      terminal.draw(|f| ui(f, &app, song_name.to_str().unwrap(), &up_next))?;
+      terminal.draw(|f| ui(f, &app, song_name, &up_next, ui_color))?;
 
       let timeout = tick_rate
         .checked_sub(last_tick.elapsed())
@@ -194,7 +202,7 @@ fn run_app<B: Backend>(
   Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]) {
+fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str], ui_color: Color) {
   let data = app
     .data
     .iter()
@@ -211,13 +219,14 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]
         .title(format!("now-playing:-{}", song_name))
         .borders(Borders::ALL),
     )
+    .style(Style::default().fg(ui_color))
     .data(&data)
     .bar_width(2)
     .bar_gap(0)
-    .bar_style(Style::default().fg(Color::Yellow));
+    .bar_style(Style::default().fg(ui_color));
   let up_next_list = List::new(up_next.iter().map(|s| ListItem::new(*s)).collect::<Vec<ListItem>>())
     .block(Block::default().title("up-next").borders(Borders::ALL))
-    .style(Style::default().fg(Color::White))
+    .style(Style::default().fg(ui_color))
     .highlight_style(Style::default().add_modifier(Modifier::ITALIC));
   f.render_widget(barchart, chunks[0]);
   f.render_widget(up_next_list, chunks[1]);
