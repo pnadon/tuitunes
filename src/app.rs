@@ -19,7 +19,8 @@ use tui::{
   Terminal,
 };
 
-pub fn run(song_path: PathBuf, enable_color: bool) -> Result<(), Box<dyn Error>> {
+/// Sets up the terminal, and runs the UI.
+pub fn run(song_path: PathBuf, use_default_color: bool) -> Result<(), Box<dyn Error>> {
   // setup terminal
   enable_raw_mode()?;
   let mut stdout = io::stdout();
@@ -29,7 +30,7 @@ pub fn run(song_path: PathBuf, enable_color: bool) -> Result<(), Box<dyn Error>>
   let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
   // run application
-  let res = run_app(&mut terminal, stream_handle, song_path, enable_color);
+  let res = run_app(&mut terminal, stream_handle, song_path, use_default_color);
 
   // restore terminal
   disable_raw_mode()?;
@@ -43,11 +44,12 @@ pub fn run(song_path: PathBuf, enable_color: bool) -> Result<(), Box<dyn Error>>
   res
 }
 
+/// Runs the UI loop, assuming the terminal has been prepared.
 fn run_app<B: Backend>(
   terminal: &mut Terminal<B>,
   stream_handle: OutputStreamHandle,
   song_path: PathBuf,
-  enable_color: bool,
+  use_default_color: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
   let tick_rate = Duration::from_millis(crate::TICK_RATE);
 
@@ -65,7 +67,7 @@ fn run_app<B: Backend>(
     let (mut analyzer, mut sink) = maybe_song_data.unwrap();
 
     let song_name = song.file_name().unwrap().to_str().unwrap();
-    let ui_color = get_ui_color(song_name, enable_color);
+    let ui_color = get_ui_color(song_name, use_default_color);
     let mut last_tick = Instant::now();
     'song: loop {
       terminal.draw(|f| {
@@ -156,7 +158,7 @@ fn run_app<B: Backend>(
       if !sink.is_paused() && last_tick.elapsed() >= tick_rate {
         let elapsed = last_tick.elapsed().as_millis();
         last_tick = Instant::now();
-        analyzer.on_tick(elapsed as u32);
+        analyzer.sample_audio(elapsed as u32);
       }
     }
   }

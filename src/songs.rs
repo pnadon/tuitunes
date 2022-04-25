@@ -12,6 +12,7 @@ use anyhow::anyhow;
 
 use crate::spectrum::Analyzer;
 
+/// Checks if the `song` path is a supported format, and loads it.
 pub fn load_app_and_sink<'a>(
   song: &'a PathBuf,
   stream_handle: &OutputStreamHandle,
@@ -28,12 +29,14 @@ pub fn load_app_and_sink<'a>(
   Ok((app, sink))
 }
 
+/// Helper function to determine is a file is a supported format.
 fn has_supported_extension(path: &Path) -> bool {
   crate::SUPPORTED_FORMATS
     .iter()
     .any(|ext| path.extension().and_then(|e| e.to_str()) == Some(*ext))
 }
 
+/// Takes a list of song paths, and returns a list with just the names of the files.
 pub fn to_song_names(paths: &[PathBuf], rev: bool) -> Vec<&str> {
   let p = paths
     .iter()
@@ -45,6 +48,8 @@ pub fn to_song_names(paths: &[PathBuf], rev: bool) -> Vec<&str> {
   }
 }
 
+/// Checks the path, if it's a directory it loads all of the songs in it.
+/// Otherwise if its a file it will attempt to load it as a song.
 pub fn load_song_list(song_path: PathBuf) -> std::io::Result<Vec<PathBuf>> {
   let mut s = if song_path.is_dir() {
     song_path
@@ -61,6 +66,7 @@ pub fn load_song_list(song_path: PathBuf) -> std::io::Result<Vec<PathBuf>> {
   Ok(s)
 }
 
+/// Performs an HTTP request and saves the file to a temporary location.
 pub fn save_song_locally(path: &str) -> Result<PathBuf, Box<dyn Error>> {
   let resp = reqwest::blocking::get(path)?;
   let ext = resp
@@ -82,6 +88,10 @@ pub fn save_song_locally(path: &str) -> Result<PathBuf, Box<dyn Error>> {
   Ok(path)
 }
 
+/// Returns a path for the purpose of pre-populating
+/// the search.
+/// It will first check if `MUSIC_HOME` is set,
+/// then `HOME`, and then by default return an empty list.
 pub fn get_search_dir() -> String {
   if let Ok(s) = env::var("MUSIC_HOME") {
     return s;

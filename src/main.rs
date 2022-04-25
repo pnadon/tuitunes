@@ -6,10 +6,12 @@ struct Args {
   /// Path of the song, either local or a url.
   #[clap(short, long)]
   path: String,
-  /// Change color based on the song
+  /// Use the default color for the ui, instead of changing per-song.
   #[clap(short, long)]
-  color: bool,
+  default_color: bool,
 }
+
+/// Handles parsing arguments, and then passing them to the app.
 fn main() -> Result<(), Box<dyn Error>> {
   let args = Args::parse();
 
@@ -23,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     PathBuf::from_str(&args.path)?
   };
 
-  let res = tuitunes::app::run(path, args.color);
+  let res = tuitunes::app::run(path, args.default_color);
   if let Err(e) = res {
     println!("{:?}", e);
   }

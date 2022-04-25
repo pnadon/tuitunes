@@ -10,6 +10,7 @@ use tui::{
 
 use crate::spectrum::Analyzer;
 
+/// The main UI that the user sees.
 pub fn main_ui<B: Backend>(
   f: &mut Frame<B>,
   analyzer: &Analyzer,
@@ -19,7 +20,7 @@ pub fn main_ui<B: Backend>(
   ui_color: Color,
 ) {
   let data = analyzer
-    .data()
+    .get_spectrum()
     .iter()
     .map(|(_, v)| ("", (v * 1000.0) as u64 + 10))
     .collect::<Vec<(&str, u64)>>();
@@ -54,6 +55,7 @@ pub fn main_ui<B: Backend>(
   f.render_widget(history_list(history, ui_color), lists_chunks[1]);
 }
 
+/// Displays the spectrum visualizer for the currently playing song.
 fn spectrum_visualizer<'a>(data: &'a [(&str, u64)], ui_color: Color) -> BarChart<'a> {
   BarChart::default()
     .block(Block::default().title("tuitunes").borders(Borders::ALL))
@@ -64,6 +66,7 @@ fn spectrum_visualizer<'a>(data: &'a [(&str, u64)], ui_color: Color) -> BarChart
     .bar_style(Style::default().fg(ui_color))
 }
 
+/// Displays info for the currently playing song, as well as controls.
 fn now_playing(song_name: &str, ui_color: Color) -> Paragraph {
   Paragraph::new(format!(
     "{song_name}\n\nq: quit\nn: next\nb: back\np: play/pause\nr: restart song\na: add songs\ns: shuffle"
@@ -76,6 +79,7 @@ fn now_playing(song_name: &str, ui_color: Color) -> Paragraph {
     .style(Style::default().fg(ui_color))
 }
 
+/// Displays the list of upcoming songs.
 fn up_next_list<'a>(up_next: &'a [&str], ui_color: Color) -> List<'a> {
   List::new(
     up_next
@@ -88,6 +92,7 @@ fn up_next_list<'a>(up_next: &'a [&str], ui_color: Color) -> List<'a> {
   .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
 }
 
+/// Displays the list of songs which have already played.
 fn history_list<'a>(history: &'a [&str], ui_color: Color) -> List<'a> {
   List::new(
     history
@@ -100,6 +105,7 @@ fn history_list<'a>(history: &'a [&str], ui_color: Color) -> List<'a> {
   .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
 }
 
+/// Creates a rectangle centered in the middle of the terminal.
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
   let popup_layout = Layout::default()
     .direction(Direction::Vertical)
@@ -126,6 +132,7 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
+/// Displays the popup which lets users add more songs.
 pub fn add_songs_popup<B: Backend>(f: &mut Frame<B>, text: &str, ui_color: Color) {
   let block = widgets::Paragraph::new(text)
     .block(
@@ -139,8 +146,11 @@ pub fn add_songs_popup<B: Backend>(f: &mut Frame<B>, text: &str, ui_color: Color
   f.render_widget(block, area);
 }
 
+/// Gets the color of the UI.
+/// If use_default is set then it just uses yellow.
+/// Otherwise, it chooses a color by computing the hash of the song's name.
 pub fn get_ui_color(song_name: &str, use_default: bool) -> Color {
-  if use_default {
+  if !use_default {
     let mut s = DefaultHasher::new();
     s.write(song_name.as_bytes());
     Color::Indexed((s.finish() % 15) as u8 + 1)
