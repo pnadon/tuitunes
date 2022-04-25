@@ -1724,6 +1724,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm 0.23.1",
+ "fastrand",
  "reqwest",
  "rodio",
  "spectrum-analyzer",

@@ -9,7 +9,7 @@ use spectrum_analyzer::windows::hann_window;
 use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
 
 use anyhow::anyhow;
-use std::io::BufReader;
+use std::{io::BufReader, str::FromStr};
 use std::path::PathBuf;
 use std::{collections::hash_map::DefaultHasher, fs::File, hash::Hasher};
 use std::{
@@ -19,9 +19,9 @@ use std::{
 };
 use tui::{
   backend::{Backend, CrosstermBackend},
-  layout::{Constraint, Direction, Layout},
+  layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
-  widgets::{BarChart, Block, Borders, List, ListItem, self},
+  widgets::{BarChart, Block, Borders, List, ListItem, self, Clear},
   Frame, Terminal,
 };
 
@@ -120,21 +120,7 @@ fn run_app<B: Backend>(
 
   let tick_rate = Duration::from_millis(TICK_RATE);
 
-  let mut songs = {
-    let mut s = if song_path.is_dir() {
-      song_path
-        .read_dir()?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.metadata().unwrap().is_file() && has_supported_extension(&e.path()))
-        .map(|e| e.path())
-        .collect::<Vec<PathBuf>>()
-    } else {
-      vec![song_path]
-    };
-    s.sort();
-    s.reverse();
-    s
-  };
+  let mut songs = get_song_list(song_path)?;
   let mut history: Vec<PathBuf> = vec![];
 
   while !songs.is_empty() {
@@ -191,6 +177,37 @@ fn run_app<B: Backend>(
               sink.stop();
               app = App::new(crate::get_source::<f32, _>(&song)?);
               sink = stream_handle.play_once(BufReader::new(File::open(&song)?))?;
+            }
+            KeyCode::Char('a') => {
+              sink.pause();
+              let mut buf = String::new();
+              'add_songs: loop {
+                terminal.draw(|f| popup(f, &buf, ui_color))?;
+                if let Event::Key(k) = event::read()? {
+                  match k.code {
+                    KeyCode::Esc => {
+                      sink.play();
+                      last_tick = Instant::now();
+                      break 'add_songs;
+                    }
+                    KeyCode::Enter => {
+                      let mut new_song_list = get_song_list(PathBuf::from_str(&buf)?)?;
+                      new_song_list.append(&mut songs);
+                      songs = new_song_list;
+                      songs.push(song);
+                      break 'song;
+                    },
+                    KeyCode::Backspace => {buf.pop();}
+                    KeyCode::Char(c) => {buf.push(c);}
+                    _ => (),
+                  }
+                }
+              }
+            },
+            KeyCode::Char('s') => {
+              songs.push(song);
+              fastrand::shuffle(&mut songs);
+              break 'song;
             }
             _ => (),
           }
@@ -262,7 +279,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]
     .bar_style(Style::default().fg(ui_color));
 
   let now_playing = widgets::Paragraph::new(format!(
-    "Now playing:\n{song_name}\n\nq: quit\nn: next\nb: back\np: play/pause\nr: restart song"
+    "Now playing:\n{song_name}\n\nq: quit\nn: next\nb: back\np: play/pause\nr: restart song\na: add songs\ns: shuffle"
     ))
     .block(
       Block::default()
@@ -324,4 +341,56 @@ fn song_list<'a>(paths: &[PathBuf], rev: bool) -> Vec<&str> {
     } else {
       p.collect::<Vec<&str>>()
     }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+  let popup_layout = Layout::default()
+      .direction(Direction::Vertical)
+      .constraints(
+          [
+              Constraint::Percentage((100 - percent_y) / 2),
+              Constraint::Percentage(percent_y),
+              Constraint::Percentage((100 - percent_y) / 2),
+          ]
+          .as_ref(),
+      )
+      .split(r);
+
+  Layout::default()
+      .direction(Direction::Horizontal)
+      .constraints(
+          [
+              Constraint::Percentage((100 - percent_x) / 2),
+              Constraint::Percentage(percent_x),
+              Constraint::Percentage((100 - percent_x) / 2),
+          ]
+          .as_ref(),
+      )
+      .split(popup_layout[1])[1]
+}
+
+fn popup<B: Backend>(f: &mut Frame<B>, text: &str, ui_color: Color) {
+  let block = widgets::Paragraph::new(text)
+    .block(Block::default().title("enter-path")
+    .borders(Borders::ALL))
+    .style(Style::default().fg(ui_color));
+  let area = centered_rect(60, 20, f.size());
+  f.render_widget(Clear, area);
+  f.render_widget(block, area);
+}
+
+fn get_song_list(song_path: PathBuf) -> io::Result<Vec<PathBuf>> {
+  let mut s = if song_path.is_dir() {
+    song_path
+      .read_dir()?
+      .filter_map(|e| e.ok())
+      .filter(|e| e.metadata().unwrap().is_file() && has_supported_extension(&e.path()))
+      .map(|e| e.path())
+      .collect::<Vec<PathBuf>>()
+  } else {
+    vec![song_path]
+  };
+  s.sort();
+  s.reverse();
+  Ok(s)
 }
