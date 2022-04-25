@@ -21,7 +21,7 @@ use tui::{
   backend::{Backend, CrosstermBackend},
   layout::{Constraint, Direction, Layout},
   style::{Color, Modifier, Style},
-  widgets::{BarChart, Block, Borders, List, ListItem},
+  widgets::{BarChart, Block, Borders, List, ListItem, self},
   Frame, Terminal,
 };
 
@@ -135,6 +135,8 @@ fn run_app<B: Backend>(
     s.reverse();
     s
   };
+  let mut history: Vec<PathBuf> = vec![];
+
   while !songs.is_empty() {
     let song = songs.pop().unwrap();
     let maybe_song_data = load_app_and_sink(&song, &stream_handle);
@@ -147,11 +149,8 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
     let song_name = song.file_name().unwrap().to_str().unwrap();
 
-    let up_next = &songs
-      .iter()
-      .rev()
-      .map(|b| b.file_name().unwrap().to_str().unwrap())
-      .collect::<Vec<&str>>();
+    let up_next = song_list(&songs, true);
+      
     let ui_color = if color {
       let mut s = DefaultHasher::new();
       s.write(song_name.as_bytes());
@@ -160,7 +159,7 @@ fn run_app<B: Backend>(
       Color::Yellow
     };
     'song: loop {
-      terminal.draw(|f| ui(f, &app, song_name, up_next, ui_color))?;
+      terminal.draw(|f| ui(f, &app, song_name, &up_next, &song_list(&history, false), ui_color))?;
 
       let timeout = tick_rate
         .checked_sub(last_tick.elapsed())
@@ -170,6 +169,14 @@ fn run_app<B: Backend>(
           match key.code {
             KeyCode::Char('q') => return Ok(()),
             KeyCode::Char('n') => {
+              history.push(song);
+              break 'song;
+            }
+            KeyCode::Char('b') => {
+              songs.push(song);
+              if let Some(s) = history.pop() {
+                songs.push(s);
+              }
               break 'song;
             }
             KeyCode::Char('p') => {
@@ -190,6 +197,7 @@ fn run_app<B: Backend>(
         }
       }
       if sink.empty() {
+        history.push(song);
         break 'song;
       }
       if !sink.is_paused() && last_tick.elapsed() >= tick_rate {
@@ -202,27 +210,49 @@ fn run_app<B: Backend>(
   Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str], ui_color: Color) {
+fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str], history: &[&str], ui_color: Color) {
   let data = app
     .data
     .iter()
     .map(|(_, v)| ("", (v * 1000.0) as u64 + 10))
     .collect::<Vec<(&str, u64)>>();
   let chunks = Layout::default()
-    .direction(Direction::Horizontal)
-    .margin(2)
+    .direction(Direction::Vertical)
+    .margin(0)
     .constraints(
       [
-        Constraint::Length(NUM_BARS as u16 * 2),
-        Constraint::Percentage(40),
+        Constraint::Min(10),
+        Constraint::Percentage(70),
       ]
       .as_ref(),
     )
     .split(f.size());
+  
+  let visualizer_chunk = Layout::default()
+    .direction(Direction::Horizontal)
+    .margin(1)
+    .constraints([
+      Constraint::Min((NUM_BARS * 2) as u16),
+      Constraint::Percentage(60),
+    ].as_ref())
+    .split(chunks[0]);
+  
+  let lists_chunks = Layout::default()
+    .direction(Direction::Horizontal)
+      .margin(1)
+      .constraints(
+        [
+          Constraint::Percentage(50),
+          Constraint::Percentage(50),
+        ]
+        .as_ref(),
+      )
+      .split(chunks[1]);
+
   let barchart = BarChart::default()
     .block(
       Block::default()
-        .title(format!("now-playing:-{}", song_name))
+        .title("tuitunes")
         .borders(Borders::ALL),
     )
     .style(Style::default().fg(ui_color))
@@ -230,6 +260,16 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]
     .bar_width(2)
     .bar_gap(0)
     .bar_style(Style::default().fg(ui_color));
+
+  let now_playing = widgets::Paragraph::new(format!(
+    "Now playing:\n{song_name}\n\nq: quit\nn: next\nb: back\np: play/pause\nr: restart song"
+    ))
+    .block(
+      Block::default()
+        .borders(Borders::ALL)
+    )
+    .style(Style::default().fg(ui_color));
+
   let up_next_list = List::new(
     up_next
       .iter()
@@ -239,8 +279,21 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App, song_name: &str, up_next: &[&str]
   .block(Block::default().title("up-next").borders(Borders::ALL))
   .style(Style::default().fg(ui_color))
   .highlight_style(Style::default().add_modifier(Modifier::ITALIC));
-  f.render_widget(barchart, chunks[0]);
-  f.render_widget(up_next_list, chunks[1]);
+
+  let history_list = List::new(
+    history
+      .iter()
+      .map(|s| ListItem::new(*s))
+      .collect::<Vec<ListItem>>(),
+  )
+  .block(Block::default().title("history").borders(Borders::ALL))
+  .style(Style::default().fg(ui_color))
+  .highlight_style(Style::default().add_modifier(Modifier::ITALIC));
+
+  f.render_widget(barchart, visualizer_chunk[0]);
+  f.render_widget(now_playing, visualizer_chunk[1]);
+  f.render_widget(up_next_list, lists_chunks[0]);
+  f.render_widget(history_list, lists_chunks[1]);
 }
 
 fn load_app_and_sink<'a>(
@@ -260,4 +313,15 @@ fn has_supported_extension(path: &PathBuf) -> bool {
   SUPPORTED_FORMATS
     .iter()
     .any(|ext| path.extension().and_then(|e| e.to_str()) == Some(*ext))
+}
+
+fn song_list<'a>(paths: &[PathBuf], rev: bool) -> Vec<&str> {
+    let p = paths
+      .iter()
+      .map(|b| b.file_name().unwrap().to_str().unwrap());
+    if rev {
+      p.rev().collect::<Vec<&str>>()
+    } else {
+      p.collect::<Vec<&str>>()
+    }
 }
