@@ -155,7 +155,7 @@ fn run_app<B: Backend>(
     let ui_color = if color {
       let mut s = DefaultHasher::new();
       s.write(song_name.as_bytes());
-      Color::Indexed((s.finish() % 16) as u8)
+      Color::Indexed((s.finish() % 15) as u8 + 1)
     } else {
       Color::Yellow
     };
