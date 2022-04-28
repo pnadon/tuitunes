@@ -2,8 +2,9 @@ use std::{
   env::{self, temp_dir},
   error::Error,
   fs::File,
-  io::{BufReader, Cursor},
+  io::{BufReader, Cursor, Read},
   path::{Path, PathBuf},
+  process::{Command, Stdio},
 };
 
 use rodio::{Decoder, OutputStreamHandle, Sink, Source};
@@ -42,9 +43,9 @@ pub fn to_song_names(paths: &[PathBuf], rev: bool) -> Vec<&str> {
     .iter()
     .map(|b| b.file_stem().unwrap().to_str().unwrap());
   if rev {
-    p.rev().collect::<Vec<&str>>()
+    p.rev().take(20).collect::<Vec<&str>>()
   } else {
-    p.collect::<Vec<&str>>()
+    p.take(20).collect::<Vec<&str>>()
   }
 }
 
@@ -100,4 +101,32 @@ pub fn get_search_dir() -> String {
     return s;
   }
   "".to_owned()
+}
+
+pub fn search_songs(query: &str, buf: &mut String) -> Result<(), Box<dyn Error>> {
+  let path = PathBuf::from(query);
+  let (name, dir) = if path.is_dir() {
+    (".", path.to_str().unwrap_or("/"))
+  } else {
+    (
+      path.file_name().and_then(|s| s.to_str()).unwrap_or("."),
+      path.parent().and_then(|s| s.to_str()).unwrap_or("/"),
+    )
+  };
+
+  let shell = env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
+  let mut command = Command::new(shell)
+    .arg("-c")
+    .arg(format!("fd \"{}\" \"{}\" -d 1", name, dir))
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()?;
+
+  command
+    .stdout
+    .take()
+    .ok_or_else(|| anyhow!("command output: unwrap failed"))?
+    .read_to_string(buf)?;
+
+  Ok(())
 }

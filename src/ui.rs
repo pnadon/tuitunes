@@ -10,6 +10,8 @@ use tui::{
 
 use crate::spectrum::Analyzer;
 
+pub const DEFAULT_COLOR: Color = Color::Yellow;
+
 /// The main UI that the user sees.
 pub fn main_ui<B: Backend>(
   f: &mut Frame<B>,
@@ -171,6 +173,6 @@ pub fn get_ui_color(song_name: &str, use_default: bool) -> Color {
     s.write(song_name.as_bytes());
     Color::Indexed((s.finish() % 15) as u8 + 1)
   } else {
-    Color::Yellow
+    DEFAULT_COLOR
   }
 }

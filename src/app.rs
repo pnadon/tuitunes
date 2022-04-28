@@ -5,12 +5,11 @@ use crossterm::{
 };
 use rodio::{OutputStream, OutputStreamHandle};
 
-use crate::ui::{add_songs_popup, get_ui_color, main_ui};
-use crate::{
-  search::search_songs,
-  songs::{get_search_dir, load_app_and_sink, load_song_list, to_song_names},
+use crate::songs::{
+  get_search_dir, load_app_and_sink, load_song_list, search_songs, to_song_names,
 };
-use std::path::PathBuf;
+use crate::ui::{add_songs_popup, get_ui_color, main_ui};
+use std::{path::PathBuf, env};
 use std::str::FromStr;
 use std::{
   error::Error,
@@ -19,11 +18,37 @@ use std::{
 };
 use tui::{
   backend::{Backend, CrosstermBackend},
-  Terminal,
+  Terminal, style::Color,
 };
 
+use anyhow::anyhow;
+
 /// Sets up the terminal, and runs the UI.
-pub fn run(song_path: PathBuf, use_default_color: bool) -> Result<(), Box<dyn Error>> {
+pub fn run(song_path: Option<PathBuf>, use_default_color: bool) -> Result<(), Box<dyn Error>> {
+  let config_dir = format!("{}/.config/tuitunes/", env::var("HOME")?);
+  let config = format!("{}songs.txt", config_dir);
+  
+  let mut history: Vec<PathBuf> = vec![];
+  let mut play_next = match song_path {
+    Some(p) => load_song_list(p)?,
+    None => {
+      std::fs::create_dir_all(&config_dir)?;
+      match std::fs::read_to_string(&config) {
+        Ok(s) => {
+          s.split("\n")
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| PathBuf::from(s))
+            .collect::<Vec<PathBuf>>()
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+          std::fs::File::create(&config)?; 
+          vec![]
+        }
+        _ => {return Err(anyhow!("No path was provided, and failed to load any songs from config").into());}
+      }
+    }
+  };
+
   // setup terminal
   enable_raw_mode()?;
   let mut stdout = io::stdout();
@@ -31,9 +56,9 @@ pub fn run(song_path: PathBuf, use_default_color: bool) -> Result<(), Box<dyn Er
   let backend = CrosstermBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
   let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-
+  
   // run application
-  let res = run_app(&mut terminal, stream_handle, song_path, use_default_color);
+  let res = run_app(&mut terminal, stream_handle, &mut play_next, &mut history, use_default_color);
 
   // restore terminal
   disable_raw_mode()?;
@@ -44,23 +69,43 @@ pub fn run(song_path: PathBuf, use_default_color: bool) -> Result<(), Box<dyn Er
   )?;
   terminal.show_cursor()?;
 
-  res
+  if !play_next.is_empty() && res.is_ok() {
+    if let Some(p) = play_next.iter().map(|s| s.to_str()).collect::<Option<Vec<&str>>>() {
+      Ok(std::fs::write(config, p.join("\n"))?)
+    } else {
+      println!("invalid paths");
+      res
+    }
+  } else {
+    println!("nothing to write");
+    res
+  }
 }
 
 /// Runs the UI loop, assuming the terminal has been prepared.
 fn run_app<B: Backend>(
   terminal: &mut Terminal<B>,
   stream_handle: OutputStreamHandle,
-  song_path: PathBuf,
+  play_next: &mut Vec<PathBuf>,
+  history: &mut Vec<PathBuf>,
   use_default_color: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
   let tick_rate = Duration::from_millis(crate::TICK_RATE);
 
-  let mut songs = load_song_list(song_path)?;
-  let mut history: Vec<PathBuf> = vec![];
-
-  while !songs.is_empty() {
-    let song = songs.pop().unwrap();
+  loop {
+    if play_next.is_empty() {
+      match submit_more_songs(terminal, crate::ui::DEFAULT_COLOR)? {
+        Some(p) => {
+          let mut more_songs = load_song_list(PathBuf::from(p))?;
+          if more_songs.is_empty() {
+            return Ok(())
+          }
+          play_next.append(&mut more_songs);
+        },
+        None => return Ok(())
+      }
+    }
+    let song = play_next.pop().unwrap();
 
     let maybe_song_data = load_app_and_sink(&song, &stream_handle);
     if let Err(e) = &maybe_song_data {
@@ -78,7 +123,7 @@ fn run_app<B: Backend>(
           f,
           &analyzer,
           song_name,
-          &to_song_names(&songs, true),
+          &to_song_names(&play_next, true),
           &to_song_names(&history, false),
           ui_color,
         )
@@ -97,9 +142,9 @@ fn run_app<B: Backend>(
               break 'song;
             }
             KeyCode::Char('b') => {
-              songs.push(song);
+              play_next.push(song);
               if let Some(s) = history.pop() {
-                songs.push(s);
+                play_next.push(s);
               }
               break 'song;
             }
@@ -117,45 +162,23 @@ fn run_app<B: Backend>(
             }
             KeyCode::Char('a') => {
               sink.pause();
-              let mut buf = get_search_dir();
-              let mut res_buf = String::new();
-              'add_songs: loop {
-                res_buf.clear();
-                search_songs(&buf, &mut res_buf)?;
-                terminal.draw(|f| add_songs_popup(f, &buf, &res_buf, ui_color))?;
-                if let Event::Key(k) = event::read()? {
-                  match k.code {
-                    KeyCode::Esc => {
-                      sink.play();
-                      last_tick = Instant::now();
-                      break 'add_songs;
-                    }
-                    KeyCode::Enter => {
-                      let mut new_song_list = load_song_list(PathBuf::from_str(&buf)?)?;
-                      new_song_list.append(&mut songs);
-                      songs = new_song_list;
-                      songs.push(song);
-                      break 'song;
-                    }
-                    KeyCode::Backspace => {
-                      buf.pop();
-                    }
-                    KeyCode::Tab => {
-                      if let Some(s) = res_buf.split('\n').find(|s| !s.is_empty()) {
-                        buf = s.to_owned();
-                      }
-                    }
-                    KeyCode::Char(c) => {
-                      buf.push(c);
-                    }
-                    _ => (),
-                  }
+              match submit_more_songs(terminal, ui_color)? {
+                Some(buf) => {
+                  let mut new_song_list = load_song_list(PathBuf::from_str(&buf)?)?;
+                  new_song_list.append(play_next);
+                  *play_next = new_song_list;
+                  play_next.push(song);
+                  break 'song;
                 }
-              }
+                None => {
+                  sink.play();
+                  last_tick = Instant::now();
+                }
+              };
             }
             KeyCode::Char('s') => {
-              songs.push(song);
-              fastrand::shuffle(&mut songs);
+              play_next.push(song);
+              fastrand::shuffle(play_next);
               break 'song;
             }
             _ => (),
@@ -173,5 +196,36 @@ fn run_app<B: Backend>(
       }
     }
   }
-  Ok(())
+}
+
+fn submit_more_songs<B: Backend>(terminal: &mut Terminal<B>, ui_color: Color) -> Result<Option<String>, Box<dyn Error>> {
+  let mut buf = get_search_dir();
+  let mut res_buf = String::new();
+  loop {
+    res_buf.clear();
+    search_songs(&buf, &mut res_buf)?;
+    terminal.draw(|f| add_songs_popup(f, &buf, &res_buf, ui_color))?;
+    if let Event::Key(k) = event::read()? {
+      match k.code {
+        KeyCode::Esc => {
+          return Ok(None);
+        }
+        KeyCode::Enter => {
+          return Ok(Some(buf));
+        }
+        KeyCode::Backspace => {
+          buf.pop();
+        }
+        KeyCode::Tab => {
+          if let Some(s) = res_buf.split('\n').find(|s| !s.is_empty()) {
+            buf = s.to_owned();
+          }
+        }
+        KeyCode::Char(c) => {
+          buf.push(c);
+        }
+        _ => (),
+      }
+    }
+  }
 }
