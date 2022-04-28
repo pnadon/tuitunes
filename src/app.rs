@@ -5,8 +5,11 @@ use crossterm::{
 };
 use rodio::{OutputStream, OutputStreamHandle};
 
-use crate::songs::{get_search_dir, load_app_and_sink, load_song_list, to_song_names};
 use crate::ui::{add_songs_popup, get_ui_color, main_ui};
+use crate::{
+  search::search_songs,
+  songs::{get_search_dir, load_app_and_sink, load_song_list, to_song_names},
+};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{
@@ -66,7 +69,7 @@ fn run_app<B: Backend>(
     }
     let (mut analyzer, mut sink) = maybe_song_data.unwrap();
 
-    let song_name = song.file_name().unwrap().to_str().unwrap();
+    let song_name = song.file_stem().unwrap().to_str().unwrap();
     let ui_color = get_ui_color(song_name, use_default_color);
     let mut last_tick = Instant::now();
     'song: loop {
@@ -115,8 +118,11 @@ fn run_app<B: Backend>(
             KeyCode::Char('a') => {
               sink.pause();
               let mut buf = get_search_dir();
+              let mut res_buf = String::new();
               'add_songs: loop {
-                terminal.draw(|f| add_songs_popup(f, &buf, ui_color))?;
+                res_buf.clear();
+                search_songs(&buf, &mut res_buf)?;
+                terminal.draw(|f| add_songs_popup(f, &buf, &res_buf, ui_color))?;
                 if let Event::Key(k) = event::read()? {
                   match k.code {
                     KeyCode::Esc => {
@@ -133,6 +139,11 @@ fn run_app<B: Backend>(
                     }
                     KeyCode::Backspace => {
                       buf.pop();
+                    }
+                    KeyCode::Tab => {
+                      if let Some(s) = res_buf.split('\n').find(|s| !s.is_empty()) {
+                        buf = s.to_owned();
+                      }
                     }
                     KeyCode::Char(c) => {
                       buf.push(c);

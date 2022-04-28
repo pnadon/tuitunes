@@ -14,3 +14,4 @@ rodio = {version = "0.15", features = ["symphonia-all"], default_features = fals
 spectrum-analyzer = "1.2.4"
 tui = "0.17.0"
 fastrand = "1.7.0"
+skim = "0.9"

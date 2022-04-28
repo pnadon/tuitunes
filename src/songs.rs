@@ -40,7 +40,7 @@ fn has_supported_extension(path: &Path) -> bool {
 pub fn to_song_names(paths: &[PathBuf], rev: bool) -> Vec<&str> {
   let p = paths
     .iter()
-    .map(|b| b.file_name().unwrap().to_str().unwrap());
+    .map(|b| b.file_stem().unwrap().to_str().unwrap());
   if rev {
     p.rev().collect::<Vec<&str>>()
   } else {

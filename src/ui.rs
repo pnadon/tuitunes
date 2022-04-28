@@ -133,17 +133,33 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// Displays the popup which lets users add more songs.
-pub fn add_songs_popup<B: Backend>(f: &mut Frame<B>, text: &str, ui_color: Color) {
-  let block = widgets::Paragraph::new(text)
+pub fn add_songs_popup<B: Backend>(
+  f: &mut Frame<B>,
+  text: &str,
+  search_res: &str,
+  ui_color: Color,
+) {
+  let search_input = widgets::Paragraph::new(text)
     .block(
       Block::default()
         .title("enter-path-to-songs")
         .borders(Borders::ALL),
     )
     .style(Style::default().fg(ui_color));
-  let area = centered_rect(60, 20, f.size());
+  let area = centered_rect(60, 60, f.size());
+
+  let search_results = widgets::Paragraph::new(search_res)
+    .block(Block::default().borders(Borders::ALL))
+    .style(Style::default().fg(ui_color).add_modifier(Modifier::ITALIC));
+
+  let layout = Layout::default()
+    .direction(Direction::Vertical)
+    .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
+    .split(area);
+
   f.render_widget(Clear, area);
-  f.render_widget(block, area);
+  f.render_widget(search_input, layout[0]);
+  f.render_widget(search_results, layout[1]);
 }
 
 /// Gets the color of the UI.
